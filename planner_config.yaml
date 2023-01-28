@@ -1,0 +1,12 @@
+# define configuration space
+x_range: [0,500]  # x coordinate
+y_range: [-500,500]  # y coordinate
+
+# define vehicle parameters
+min_turn_radius: 5.0  # m
+
+# waypoints: [[50,50], [50,0], [0,50]]
+# waypoints: [[5,5], [5,0], [0,25]]
+# waypoints: [[55,50],[55,40],[30,20]]
+waypoints: [[2,4],[9,2],[5,7],[2,9],[3,3],[7,5],[9,9],[4,8],[8,1]]
+# waypoints: [[55,50],[55,40],[30,20]]
