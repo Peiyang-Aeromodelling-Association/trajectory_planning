@@ -2,7 +2,7 @@
 '''
 Date: 2023-01-26 17:11:34
 LastEditors: Lcf
-LastEditTime: 2023-01-27 21:47:06
+LastEditTime: 2023-06-20 21:14:33
 FilePath: \traj_planning\discrete_planner.py
 Description: default
 '''
@@ -82,7 +82,7 @@ def waypoints_kinematic_constraint(waypoints):
     for i in range(len(waypoints) - 1):
         if np.allclose(waypoints[i], waypoints[i + 1]):
             return False
-    max_curvature = 1 / 1
+    max_curvature = 1
     for i in range(len(waypoints) - 2):  # the curvature of the path should be smaller than the maximum curvature
         p1, p2, p3 = waypoints[i], waypoints[i + 1], waypoints[i + 2]
         a, b, c = np.linalg.norm(p2 - p3), np.linalg.norm(p1 - p3), np.linalg.norm(p1 - p2)
@@ -235,6 +235,26 @@ from geomdl import fitting
 degree = 4
 
 with Timer("b-spline fitting elapsed: %f s"):
+
+    # 1.remove points that are linear, keep only the turning points
+    _path = np.array(path)
+    for i in reversed(range(1, len(path) - 1)):
+        if (path[i][0] - path[i - 1][0]) * (path[i + 1][1] - path[i][1]) == \
+                (path[i][1] - path[i - 1][1]) * (path[i + 1][0] - path[i][0]):
+            _path = np.delete(_path, i, axis=0)
+
+    path = _path.tolist()
+
+    # 2. linearly interpolate the last 2 points to make the path smoother
+    last_point = path[-1]
+    second_last_point = path[-2]
+    # interpolate 10 points between the last 2 points
+    path = path[:-2]  # remove the last 2 points
+    for i in range(1, 10):
+        path.append([second_last_point[0] + (last_point[0] - second_last_point[0]) / 10 * i,
+                     second_last_point[1] + (last_point[1] - second_last_point[1]) / 10 * i])  # append the interpolated points
+                    
+    # 3. interpolate the path
     trajectory = fitting.interpolate_curve(path, degree)
 
     trajectory.delta = 0.01  # 100 sample points
