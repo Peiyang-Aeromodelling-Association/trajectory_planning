@@ -2,7 +2,7 @@
 '''
 Date: 2023-01-26 17:11:34
 LastEditors: Lcf
-LastEditTime: 2023-01-27 21:47:06
+LastEditTime: 2023-06-20 21:14:33
 FilePath: \traj_planning\discrete_planner.py
 Description: default
 '''
@@ -82,7 +82,7 @@ def waypoints_kinematic_constraint(waypoints):
     for i in range(len(waypoints) - 1):
         if np.allclose(waypoints[i], waypoints[i + 1]):
             return False
-    max_curvature = 1 / 1
+    max_curvature = 1
     for i in range(len(waypoints) - 2):  # the curvature of the path should be smaller than the maximum curvature
         p1, p2, p3 = waypoints[i], waypoints[i + 1], waypoints[i + 2]
         a, b, c = np.linalg.norm(p2 - p3), np.linalg.norm(p1 - p3), np.linalg.norm(p1 - p2)
@@ -97,167 +97,115 @@ def waypoints_kinematic_constraint(waypoints):
         #
     return True
 
+with Timer("Discret planning elapsed: %f s"):
 
-num_tries = 1000000
-recorded_max_time = 0
-avg_time = 0
-for k in range(num_tries):
-    print(f"Try {k + 1}/{num_tries}")
-    begin_time = time.time()
-    with Timer("Elapsed time: %f s"):
+    waypoints = np.array(config.waypoints)  # TODO
+    # waypoints = np.random.randint(50 - 5, 50 + 5, (2, 2))
+    # for i in range(len(waypoints)-1):
+    #     # randomly generate 2 integers in the range of [0,1]
+    #     a, b = np.random.randint(0, 2, 2)
+    #     a = -1 if a == 0 else 1
+    #     b = -1 if b == 0 else 1
+    #     waypoints[i + 1, 0] = waypoints[i, 0] + a
+    #     waypoints[i + 1, 1] = waypoints[i, 1] + b
 
-        # waypoints = np.array(config.waypoints)  # TODO
-        waypoints = np.random.randint(50 - 5, 50 + 5, (2, 2))
-        for i in range(len(waypoints)-1):
-            # randomly generate 2 integers in the range of [0,1]
-            a, b = np.random.randint(0, 2, 2)
-            a = -1 if a == 0 else 1
-            b = -1 if b == 0 else 1
-            waypoints[i + 1, 0] = waypoints[i, 0] + a
-            waypoints[i + 1, 1] = waypoints[i, 1] + b
-        # if not waypoints_kinematic_constraint(waypoints):
-        #     print("Waypoints do not satisfy kinematic constraints")
-        #     continue
-
-        visited = np.zeros((num_cells_x, num_cells_y), dtype=int)
+    visited = np.zeros((num_cells_x, num_cells_y), dtype=int)
+    def dist_infimum(p1, p2):
+        """
+        Calculate the infimum distance between two points
+        """
+        # return max(np.abs(p1[0] - p2[0]), np.abs(p1[1] - p2[1]))
+        long_side = max(np.abs(p1[0] - p2[0]), np.abs(p1[1] - p2[1]))
+        short_side = min(np.abs(p1[0] - p2[0]), np.abs(p1[1] - p2[1]))
+        return long_side * 10 - short_side * 10 + short_side * 14
 
 
-        def dist_infimum(p1, p2):
-            """
-            Calculate the infimum distance between two points
-            """
-            # return max(np.abs(p1[0] - p2[0]), np.abs(p1[1] - p2[1]))
-            long_side = max(np.abs(p1[0] - p2[0]), np.abs(p1[1] - p2[1]))
-            short_side = min(np.abs(p1[0] - p2[0]), np.abs(p1[1] - p2[1]))
-            return long_side * 10 - short_side * 10 + short_side * 14
+    # pre-compute the distance between waypoints to speed up the heuristic calculation
+    wp_distance_lookup_table = np.zeros((len(waypoints)), dtype=float)
+    for i in reversed(range(len(waypoints) - 1)):
+        wp_distance_lookup_table[i] = wp_distance_lookup_table[i + 1] + \
+                                      dist_infimum(waypoints[i], waypoints[i + 1])
+
+    def heuristic(cell_index, waypoints, next_waypoint_index=0):
+        """
+        Calculate the heuristic cost between two cells
+        """
+        waypoints_h = wp_distance_lookup_table[next_waypoint_index]
+        # current_h is the maximum of the distance between the current cell and the remaining waypoints
+        current_h = dist_infimum(cell_index, waypoints[next_waypoint_index])
+        return waypoints_h + current_h
 
 
-        # pre-compute the distance between waypoints to speed up the heuristic calculation
-        wp_distance_lookup_table = np.zeros((len(waypoints)), dtype=float)
-        for i in reversed(range(len(waypoints) - 1)):
-            wp_distance_lookup_table[i] = wp_distance_lookup_table[i + 1] + \
-                                          dist_infimum(waypoints[i], waypoints[i + 1])
-            # np.linalg.norm(waypoints[i] - waypoints[i + 1])
+    open_list = PriorityQueue()
 
+    begin_cell_index = (50, 50)
+    begin_direction = (1, 1)
 
-        def heuristic(cell_index, waypoints, next_waypoint_index=0):
-            """
-            Calculate the heuristic cost between two cells
-            """
-            waypoints_h = wp_distance_lookup_table[next_waypoint_index]
-            # current_h = np.linalg.norm(
-            #     np.array(cell_index) - np.array(waypoints[next_waypoint_index]))
-            # current_h is the maximum of the distance between the current cell and the remaining waypoints
-            current_h = dist_infimum(cell_index, waypoints[next_waypoint_index])
-            return waypoints_h + current_h
+    begin_cell_index_ = (begin_cell_index[0] + begin_direction[0], begin_cell_index[1] + begin_direction[1])
 
+    # initialize the start node
+    start_node = Node(g=0, h=heuristic(begin_cell_index, waypoints,
+                                       next_waypoint_index=0), path=[begin_cell_index, begin_cell_index_], reached_waypoints=[])
+    open_list.put(start_node)
 
-        open_list = PriorityQueue()
+    h = heuristic(begin_cell_index, waypoints, next_waypoint_index=0)
 
-        begin_cell_index = (50, 50)
+    # A* search
+    while not open_list.empty():
+        current_node = open_list.get()
 
-        # initialize the start node
-        start_node = Node(g=0, h=heuristic(begin_cell_index, waypoints,
-                                           next_waypoint_index=0), path=[begin_cell_index], reached_waypoints=[])
-        open_list.put(start_node)
+        current_cell_index = current_node.path[-1]
 
-        h = heuristic(begin_cell_index, waypoints, next_waypoint_index=0)
-        print(f"h={h}")
-        # if h > 30:
-        #     print(f"Tree is too large, h={h}, aborting...")
-        #     exit()
+        # check if the current cell is the goal cell
+        if len(current_node.reached_waypoints) == len(waypoints):
+            print(f"reached_waypoints: {current_node.reached_waypoints}")
+            print("Found the goal cell!")
+            print(f"Cost: {current_node.g}")
+            print(f"Open list size: {open_list.qsize()}")
+            break
 
-        # A* search
-        while not open_list.empty():
-            current_node = open_list.get()
+        # expand the current cell
+        for i, j in itertools.product(reversed(range(-1, 2)), reversed(range(-1, 2))):
+            # skip the current cell
+            if i == 0 and j == 0:
+                continue
 
-            current_cell_index = current_node.path[-1]
+            # boundary check
+            if current_cell_index[0] + i < 0 or current_cell_index[0] + i >= num_cells_x or \
+                    current_cell_index[1] + j < 0 or current_cell_index[1] + j >= num_cells_y:
+                continue
 
-            # check if the current cell is the goal cell
-            if len(current_node.reached_waypoints) == len(waypoints):
-                print(f"reached_waypoints: {current_node.reached_waypoints}")
-                print("Found the goal cell!")
-                print(f"Cost: {current_node.g}")
-                print(f"Open list size: {open_list.qsize()}")
-                break
-
-            # expand the current cell
-            for i, j in itertools.product(reversed(range(-1, 2)), reversed(range(-1, 2))):
-                # skip the current cell
-                if i == 0 and j == 0:
+            # kinematic check
+            if len(current_node.path) >= 2:  # not the start cell
+                prev_direction = (current_node.path[-1][0] - current_node.path[-2][0],
+                                  current_node.path[-1][1] - current_node.path[-2][1])
+                current_direction = (i, j)
+                # if dot product is negative, kinematic constraint is violated
+                if prev_direction[0] * current_direction[0] + prev_direction[1] * current_direction[1] <= 0:
                     continue
 
-                # boundary check
-                if current_cell_index[0] + i < 0 or current_cell_index[0] + i >= num_cells_x or current_cell_index[
-                    1] + j < 0 or current_cell_index[1] + j >= num_cells_y:
-                    continue
+            # calculate the cell index of next cell
+            next_cell_index = (
+                current_cell_index[0] + i, current_cell_index[1] + j)
 
-                # kinematic check
-                if len(current_node.path) >= 2:  # not the start cell
-                    prev_direction = (current_node.path[-1][0] - current_node.path[-2][0],
-                                      current_node.path[-1][1] - current_node.path[-2][1])
-                    current_direction = (i, j)
-                    # if dot product is negative, kinematic constraint is violated
-                    if prev_direction[0] * current_direction[0] + prev_direction[1] * current_direction[1] <= 0:
-                        continue
+            visited[next_cell_index] += 1
 
-                # calculate the cell index of next cell
-                next_cell_index = (
-                    current_cell_index[0] + i, current_cell_index[1] + j)
+            next_waypoint_index = 0 if len(
+                current_node.reached_waypoints) == 0 else min(current_node.reached_waypoints[-1] + 1,
+                                                              len(waypoints) - 1)
 
-                # #TODO
-                # if visited[next_cell_index] > 1:
-                #     continue
+            if np.array_equal(next_cell_index, waypoints[next_waypoint_index]):
+                reached_waypoints = current_node.reached_waypoints + [next_waypoint_index]
+            else:
+                reached_waypoints = current_node.reached_waypoints
 
-                visited[next_cell_index] += 1
+            dl = 10 if i == 0 or j == 0 else 14
+            next_node = Node(g=current_node.g + dl, h=heuristic(next_cell_index, waypoints,
+                                                                next_waypoint_index=next_waypoint_index),
+                             path=current_node.path + [next_cell_index], reached_waypoints=reached_waypoints)
 
-                next_waypoint_index = 0 if len(
-                    current_node.reached_waypoints) == 0 else min(current_node.reached_waypoints[-1] + 1,
-                                                                  len(waypoints) - 1)
+            open_list.put(next_node)
 
-                if np.array_equal(next_cell_index, waypoints[next_waypoint_index]):
-                    reached_waypoints = current_node.reached_waypoints + [next_waypoint_index]
-                else:
-                    reached_waypoints = current_node.reached_waypoints
-
-                dl = 10 if i == 0 or j == 0 else 14
-                next_node = Node(g=current_node.g + dl, h=heuristic(next_cell_index, waypoints,
-                                                                    next_waypoint_index=next_waypoint_index),
-                                 path=current_node.path + [next_cell_index], reached_waypoints=reached_waypoints)
-
-                open_list.put(next_node)
-
-    end_time = time.time()
-    avg_time += (end_time - begin_time) / num_tries
-    if end_time - begin_time > recorded_max_time:
-        recorded_max_time = end_time - begin_time
-        print(f"New max time: {recorded_max_time}")
-    if end_time - begin_time > 3:
-        # plot the path
-        path = current_node.path
-        path_x = [cell_index[0] for cell_index in path]
-        path_y = [cell_index[1] for cell_index in path]
-
-        plt.figure()
-        plt.plot(path_x, path_y, 'r-')
-
-        # plot the waypoints
-        waypoints_x = [cell_index[0] for cell_index in waypoints]
-        waypoints_y = [cell_index[1] for cell_index in waypoints]
-        plt.plot(waypoints_x, waypoints_y, 'bo')
-
-        plt.axis('equal')
-
-        # plot the visited(numpy array) using plasma colormap
-        visited_x = np.where(visited)[0]
-        visited_y = np.where(visited)[1]
-        plt.scatter(visited_x, visited_y,
-                    c=visited[visited_x, visited_y], cmap='plasma', marker='o', s=1)
-        plt.colorbar()
-        plt.show()
-
-print(f"Max time: {recorded_max_time}")
-print(f"Average time: {avg_time}")
 
 # plot the path
 path = current_node.path
@@ -280,4 +228,45 @@ visited_y = np.where(visited)[1]
 plt.scatter(visited_x, visited_y,
             c=visited[visited_x, visited_y], cmap='plasma', marker='o', s=1)
 plt.colorbar()
+
+
+from geomdl import fitting
+
+degree = 4
+
+with Timer("b-spline fitting elapsed: %f s"):
+
+    # 1.remove points that are linear, keep only the turning points
+    _path = np.array(path)
+    for i in reversed(range(1, len(path) - 1)):
+        if (path[i][0] - path[i - 1][0]) * (path[i + 1][1] - path[i][1]) == \
+                (path[i][1] - path[i - 1][1]) * (path[i + 1][0] - path[i][0]):
+            _path = np.delete(_path, i, axis=0)
+
+    path = _path.tolist()
+
+    # 2. linearly interpolate the last 2 points to make the path smoother
+    last_point = path[-1]
+    second_last_point = path[-2]
+    # interpolate 10 points between the last 2 points
+    path = path[:-2]  # remove the last 2 points
+    for i in range(1, 10):
+        path.append([second_last_point[0] + (last_point[0] - second_last_point[0]) / 10 * i,
+                     second_last_point[1] + (last_point[1] - second_last_point[1]) / 10 * i])  # append the interpolated points
+                    
+    # 3. interpolate the path
+    trajectory = fitting.interpolate_curve(path, degree)
+
+    trajectory.delta = 0.01  # 100 sample points
+
+# plot the trajectory
+trajectory_x = [point[0] for point in trajectory.evalpts]
+trajectory_y = [point[1] for point in trajectory.evalpts]
+
+print(len(trajectory_x))
+
+plt.plot(trajectory_x, trajectory_y, 'g-')
+
+plt.title(f"Cost: {current_node.g}")
+
 plt.show()
